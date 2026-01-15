@@ -1,0 +1,76 @@
+﻿@page "/"
+@using Microsoft.AspNetCore.SignalR.Client
+@inject NavigationManager Navigation
+@implements IAsyncDisposable
+@rendermode InteractiveServer
+
+<PageTitle>Chat</PageTitle>
+
+<div class="card">
+    <div class="card-header">Chat Room</div>
+    <div class="card-body" style="height: 300px; overflow-y: scroll;">
+        <ul class="list-group">
+            @foreach (var message in messages)
+            {
+                <li class="list-group-item">@message</li>
+            }
+        </ul>
+    </div>
+    <div class="card-footer">
+        <div class="input-group">
+            <input @bind="userInput" class="form-control" placeholder="User Name" style="max-width: 150px;" />
+            <input @bind="messageInput" class="form-control" placeholder="Message..." @onkeyup="@(e => e.Key == "Enter" ? Send() : null)" />
+            <button @onclick="Send" class="btn btn-primary" disabled="@(!IsConnected)">Send</button>
+        </div>
+    </div>
+</div>
+
+@code {
+    private HubConnection? hubConnection;
+    private List<string> messages = new List<string>();
+    private string? userInput;
+    private string? messageInput;
+
+    protected override async Task OnInitializedAsync()
+    {
+        // connecting to the hub 
+        hubConnection = new HubConnectionBuilder()
+            .WithUrl(Navigation.ToAbsoluteUri("/chathub"))
+            .Build();
+
+        // making sure we have a listener setup
+        hubConnection.On<string, string>("ReceiveMessage", (user, message) =>
+        {
+            var formattedMessage = $"{user}: {message}";
+            messages.Add(formattedMessage);
+            InvokeAsync(StateHasChanged); 
+            // state has changed will force an update on the page, kind of a fallback, there are better ways
+            // kinda in a hurry to get this to you guys
+        });
+
+        // finally, we launch our connection and hope for the best xD
+        await hubConnection.StartAsync();
+    }
+
+    private async Task Send()
+    {
+        if (hubConnection is not null && !string.IsNullOrWhiteSpace(userInput) && !string.IsNullOrWhiteSpace(messageInput))
+        {
+            // message should be sending to server here upon click
+            await hubConnection.SendAsync("SendMessage", userInput, messageInput);
+            messageInput = string.Empty; // Clear input
+        }
+    }
+
+    public bool IsConnected => hubConnection?.State == HubConnectionState.Connected;
+
+    // we just want to make sure that when the webpage closes, we close their instance. We don't want to keep their connection 
+    // going until timeout - i believe default is 3 minutes of inactivity (sure probably check this)
+    public async ValueTask DisposeAsync()
+    {
+        if (hubConnection is not null)
+        {
+            await hubConnection.DisposeAsync();
+        }
+    }
+}
